@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN apk add --no-cache dumb-init
 
 COPY prometheus_speedtest/prometheus_speedtest.py /
+COPY static /static
 
 EXPOSE 8080/tcp
 ENTRYPOINT [ "dumb-init", "python", "prometheus_speedtest.py" ]

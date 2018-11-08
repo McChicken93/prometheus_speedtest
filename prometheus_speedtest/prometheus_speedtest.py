@@ -3,12 +3,14 @@
 
 import argparse
 import http
+import os
 import socketserver
+import urllib
 
 import glog as logging
-import prometheus_client
-from prometheus_client import core
 import speedtest
+
+import prometheus_client
 
 PARSER = argparse.ArgumentParser(
     description='Instrument speedtest.net speedtests from Prometheus.',
@@ -73,36 +75,54 @@ class SpeedtestCollector:
         """
         results = self._tester.test()
 
-        download_speed = core.GaugeMetricFamily('download_speed_bps',
-                                                'Download speed (bit/s)')
+        download_speed = prometheus_client.core.GaugeMetricFamily(
+            'download_speed_bps', 'Download speed (bit/s)')
         download_speed.add_metric(labels=[], value=results.download)
         yield download_speed
 
-        upload_speed = core.GaugeMetricFamily('upload_speed_bps',
-                                              'Upload speed (bit/s)')
+        upload_speed = prometheus_client.core.GaugeMetricFamily(
+            'upload_speed_bps', 'Upload speed (bit/s)')
         upload_speed.add_metric(labels=[], value=results.upload)
         yield upload_speed
 
-        ping = core.GaugeMetricFamily('ping_ms', 'Latency (ms)')
+        ping = prometheus_client.core.GaugeMetricFamily('ping_ms',
+                                                        'Latency (ms)')
         ping.add_metric(labels=[], value=results.ping)
         yield ping
 
-        bytes_received = core.GaugeMetricFamily('bytes_received',
-                                                'Bytes received during test')
+        bytes_received = prometheus_client.core.GaugeMetricFamily(
+            'bytes_received', 'Bytes received during test')
         bytes_received.add_metric(labels=[], value=results.bytes_received)
         yield bytes_received
 
-        bytes_sent = core.GaugeMetricFamily('bytes_sent',
-                                            'Bytes sent during test')
+        bytes_sent = prometheus_client.core.GaugeMetricFamily(
+            'bytes_sent', 'Bytes sent during test')
         bytes_sent.add_metric(labels=[], value=results.bytes_sent)
         yield bytes_sent
 
 
+class SpeedtestMetricsHandler(http.server.SimpleHTTPRequestHandler,
+                              prometheus_client.MetricsHandler):
+    """HTTP handler extending MetricsHandler and adding status page support."""
+
+    def do_GET(self):
+        """Handles HTTP GET requests.
+
+        Requests to '/probe' are handled by prometheus_client.MetricsHandler,
+        other requests serve static HTML.
+        """
+        path = urllib.parse.urlparse(self.path).path
+        if path == '/probe':
+            prometheus_client.MetricsHandler.do_GET(self)
+        else:
+            http.server.SimpleHTTPRequestHandler.do_GET(self)
+
+
 def main():
     """Entry point for prometheus_speedtest.py."""
-    registry = core.CollectorRegistry(auto_describe=False)
+    registry = prometheus_client.core.CollectorRegistry(auto_describe=False)
     registry.register(SpeedtestCollector())
-    metrics_handler = prometheus_client.MetricsHandler.factory(registry)
+    metrics_handler = SpeedtestMetricsHandler.factory(registry)
 
     # http.server.ThreadingHTTPServer is new to Python 3.7, create our own for
     # backwards-compatibility.
@@ -110,6 +130,11 @@ def main():
         'ThreadingHTTPServer',
         (socketserver.ThreadingMixIn, http.server.HTTPServer), {})
     server = threading_http_server(('', FLAGS.port), metrics_handler)
+
+    # http.server.SimpleHTTPRequestHandler added support for a directory
+    # argument in Python 3.7. Change directory here for backwards
+    # compatibility with older versions of Python 3.
+    os.chdir(os.path.join(os.path.dirname(__file__), 'static'))
 
     logging.info('Starting HTTP server on port %s', FLAGS.port)
     server.serve_forever()

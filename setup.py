@@ -48,7 +48,7 @@ setup(
     install_requires=[
         'glog>=0.3.1',
         'mock>=2.0.0',
-        'prometheus_client>=0.3.1',
+        'prometheus_client>=0.4.3',
         'speedtest-cli>=2.0.2',
     ],
     keywords=['prometheus', 'monitoring', 'speedtest', 'speedtest.net'],
